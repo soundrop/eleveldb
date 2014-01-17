@@ -329,23 +329,32 @@ do_fold(Itr, Fun, Acc0, Opts) ->
         %% Extract {first_key, binary()} and seek to that key as a starting
         %% point for the iteration. The folding function should use throw if it
         %% wishes to terminate before the end of the fold.
-        Start = proplists:get_value(first_key, Opts, first),
-        true = is_binary(Start) or (Start == first),
-        fold_loop(iterator_move(Itr, Start), Itr, Fun, Acc0)
+        Direction = proplists:get_value(direction, Opts, forward),
+        FirstKey = proplists:get_value(first_key, Opts, undefined),
+        Start = fold_start(FirstKey, Direction),
+        Next = fold_next(Direction),
+        fold_loop(iterator_move(Itr, Start), Itr, Next, Fun, Acc0)
     after
         iterator_close(Itr)
     end.
 
-fold_loop({error, iterator_closed}, _Itr, _Fun, Acc0) ->
+fold_start(undefined, forward) -> first;
+fold_start(undefined, reverse) -> last;
+fold_start(Key, _) when is_binary(Key); Key =:= first; Key =:= last -> Key.
+
+fold_next(forward) -> prefetch;
+fold_next(reverse) -> prev.
+
+fold_loop({error, iterator_closed}, _Itr, _Next, _Fun, Acc0) ->
     throw({iterator_closed, Acc0});
-fold_loop({error, invalid_iterator}, _Itr, _Fun, Acc0) ->
+fold_loop({error, invalid_iterator}, _Itr, _Next, _Fun, Acc0) ->
     Acc0;
-fold_loop({ok, K}, Itr, Fun, Acc0) ->
+fold_loop({ok, K}, Itr, Next, Fun, Acc0) ->
     Acc = Fun(K, Acc0),
-    fold_loop(iterator_move(Itr, prefetch), Itr, Fun, Acc);
-fold_loop({ok, K, V}, Itr, Fun, Acc0) ->
+    fold_loop(iterator_move(Itr, Next), Itr, Next, Fun, Acc);
+fold_loop({ok, K, V}, Itr, Next, Fun, Acc0) ->
     Acc = Fun({K, V}, Acc0),
-    fold_loop(iterator_move(Itr, prefetch), Itr, Fun, Acc).
+    fold_loop(iterator_move(Itr, Next), Itr, Next, Fun, Acc).
 
 validate_type({_Key, bool}, true)                            -> true;
 validate_type({_Key, bool}, false)                           -> true;
